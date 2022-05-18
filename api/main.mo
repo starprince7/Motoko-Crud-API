@@ -1,6 +1,7 @@
 import Trie "mo:base/Trie";
 import Hash "mo:base/Hash";
 import Nat "mo:base/Nat";
+import Result "mo:base/Result";
 
 actor Avatar {
     // App data model
@@ -15,6 +16,12 @@ actor Avatar {
         bio: Bio;
     };
 
+    // Err Type
+    type Error = {
+        #NotFound;
+        #AlreadyExists;
+    };
+
     // Application state / Persisted state OR Database
     stable var profiles : Trie.Trie<Nat, Profile> = Trie.empty();
 
@@ -22,7 +29,7 @@ actor Avatar {
     stable var next_id : Nat = 1;
 
     // Create Method
-    public func create(profile : Profile) : async Bool {
+    public func create(profile : Profile) : async Result.Result<(), Error> {
         let profileId = next_id;
         next_id += 1;
 
@@ -37,27 +44,27 @@ actor Avatar {
         switch(existingProfile) {
             case null {
                 profiles:= newProfile;
+                #ok(());
             };
             case (? v) {
-                return false;
+                #err(#AlreadyExists);
             };
         };
 
-        return true;
     };
 
     // Read Method
-    public func read(profileId : Nat) : async ?Profile {
+    public func read(profileId : Nat) : async Result.Result<Profile, Error> {
         let result = Trie.find(
             profiles,
             key(profileId),
             Nat.equal,
         );
-        return result;
+        return Result.fromOption(result, #NotFound);
     };
 
     // Update Method
-    public func update(profileId : Nat, profile : Profile) : async Bool {
+    public func update(profileId : Nat, profile : Profile) : async Result.Result<(), Error> {
         let result = Trie.find(
             profiles,
             key(profileId),
@@ -68,7 +75,7 @@ actor Avatar {
         // Do not update or allow update on profiles not yet created
         switch(result) {
             case null {
-                return false;
+                #err(#NotFound);
             };
             case (? v) {
                 profiles:= Trie.replace(
@@ -77,23 +84,24 @@ actor Avatar {
                     Nat.equal, 
                     ?profile
                 ).0;
+                #ok(());
             };
         };
-        return true;
+
     };
 
     // Delete Method
-    public func delete(profileId : Nat) : async Bool {
+    public func delete(profileId : Nat) : async Result.Result<(), Error> {
         let result = Trie.find(
             profiles,
             key(profileId),
             Nat.equal
         );
 
-        // Check if profile data exist using 'switch' statement
+        // Check if profile data to delete exists using 'switch' statement before a Delete operation
         switch(result) {
             case null {
-                return false;
+                #err(#NotFound);
             };
             case (? v) {
                 profiles:= Trie.replace(    /* Trie.replace returns a tuple (newUpdate & existingData) */
@@ -102,9 +110,10 @@ actor Avatar {
                     Nat.equal,
                     null    /* Data to update with */
                 ).0;
+                #ok(());
             };
         };
-        return true;
+
     };
 
     private func key(x : Nat) : Trie.Key<Nat> {

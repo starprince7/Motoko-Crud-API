@@ -2,6 +2,7 @@ import Trie "mo:base/Trie";
 import Hash "mo:base/Hash";
 import Nat "mo:base/Nat";
 import Result "mo:base/Result";
+import Principal "mo:base/Principal";
 
 actor Avatar {
     // App data model
@@ -14,30 +15,44 @@ actor Avatar {
     
     type Profile = {
         bio: Bio;
+        id: Principal;
+    };
+
+    type ProfileUpdate = {
+        bio: Bio;
     };
 
     // Err Type
     type Error = {
         #NotFound;
         #AlreadyExists;
+        #NOT_AUTHORIZED;
     };
 
     // Application state / Persisted state OR Database
-    stable var profiles : Trie.Trie<Nat, Profile> = Trie.empty();
+    stable var profiles : Trie.Trie<Principal, Profile> = Trie.empty();
 
-    // Increamented ID
-    stable var next_id : Nat = 1;
+    // < Create Method >======================================================================>
+    public shared(msg) func create (profile : ProfileUpdate) : async Result.Result<(), Error> {
+        // get caller's Principal
+        let callerId = msg.caller;
 
-    // Create Method
-    public func create(profile : Profile) : async Result.Result<(), Error> {
-        let profileId = next_id;
-        next_id += 1;
+        // reject anonymous identity calls
+        if(Principal.toText(callerId) == "2vxsx-fae") {
+            return #err(#NOT_AUTHORIZED);
+        };
+        
+        // Assign Principal to a new profile of type (': Profile') to each new user.
+        let userProfile : Profile = {
+            bio = profile.bio;
+            id = callerId;
+        };
 
         let (newProfile, existingProfile) = Trie.put(
-            profiles,       /* Database Where to insert profile data */
-            key(profileId), /* Key */
-            Nat.equal,      /* Check Equality */
-            profile         /* Data from argument */
+            profiles,           /* Database Where to insert profile data */
+            key(callerId),      /* Key */
+            Principal.equal,    /* Check Equality */
+            userProfile         /* Data from argument */
         );
 
         // Update App state on Condition
@@ -53,22 +68,44 @@ actor Avatar {
 
     };
 
-    // Read Method
-    public func read(profileId : Nat) : async Result.Result<Profile, Error> {
+    // < Read Method >====================================================>
+    public shared(msg) func read () : async Result.Result<Profile, Error> {
+        // get caller's Principal
+        let callerId = msg.caller;
+
+        // reject anonymous identity calls
+        if(Principal.toText(callerId) == "2vxsx-fae") {
+            return #err(#NOT_AUTHORIZED);
+        };
+        
         let result = Trie.find(
             profiles,
-            key(profileId),
-            Nat.equal,
+            key(callerId),
+            Principal.equal,
         );
         return Result.fromOption(result, #NotFound);
     };
 
-    // Update Method
-    public func update(profileId : Nat, profile : Profile) : async Result.Result<(), Error> {
+    // < Update Method >================================================================<
+    public shared(msg) func update (profile : Profile) : async Result.Result<(), Error> {
+        // get caller's Principal
+        let callerId = msg.caller;
+
+        // reject anonymous identity calls
+        if(Principal.toText(callerId) == "2vxsx-fae") {
+            return #err(#NOT_AUTHORIZED);
+        };
+        
+        // Associate a principal to each user / caller.
+        let userProfile : Profile = {
+            bio = profile.bio;
+            id = callerId;
+        };
+
         let result = Trie.find(
             profiles,
-            key(profileId),
-            Nat.equal,  /* Equality Checker */
+            key(callerId),
+            Principal.equal,  /* Equality Checker */
         );
 
         // Look for the exact profile to update
@@ -80,9 +117,9 @@ actor Avatar {
             case (? v) {
                 profiles:= Trie.replace(
                     profiles,
-                    key(profileId),
-                    Nat.equal, 
-                    ?profile
+                    key(callerId),
+                    Principal.equal, 
+                    ?userProfile
                 ).0;
                 #ok(());
             };
@@ -90,12 +127,20 @@ actor Avatar {
 
     };
 
-    // Delete Method
-    public func delete(profileId : Nat) : async Result.Result<(), Error> {
+    // < Delete Method >===============================================<
+    public shared(msg) func delete () : async Result.Result<(), Error> {
+        // get caller's Principal
+        let callerId = msg.caller;
+
+        // reject anonymous identity calls
+        if(Principal.toText(callerId) == "2vxsx-fae") {
+            return #err(#NOT_AUTHORIZED);
+        };
+        
         let result = Trie.find(
             profiles,
-            key(profileId),
-            Nat.equal
+            key(callerId),
+            Principal.equal
         );
 
         // Check if profile data to delete exists using 'switch' statement before a Delete operation
@@ -106,8 +151,8 @@ actor Avatar {
             case (? v) {
                 profiles:= Trie.replace(    /* Trie.replace returns a tuple (newUpdate & existingData) */
                     profiles,    /* Pointer to App state or DB */
-                    key(profileId),
-                    Nat.equal,
+                    key(callerId),
+                    Principal.equal,
                     null    /* Data to update with */
                 ).0;
                 #ok(());
@@ -116,8 +161,9 @@ actor Avatar {
 
     };
 
-    private func key(x : Nat) : Trie.Key<Nat> {
-        return { key = x; hash = Hash.hash(x) }
+    // < Key Function > ===============================>
+    private func key(x : Principal) : Trie.Key<Principal> {
+        return { key = x; hash = Principal.hash(x) }
     }
 
 }
